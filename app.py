@@ -7,10 +7,11 @@ from models import db, User, Post, Comment, Like, Follow, Friendship, PrivateMes
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import timedelta
 from werkzeug.utils import secure_filename
+from api import api
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.urandom(24)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///social_network.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=30)
@@ -31,18 +32,13 @@ login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.remember_cookie_duration = timedelta(days=30)
 
-# Получаем абсолютный путь к базе данных
-current_dir = Path(__file__).parent.absolute()
-db_path = current_dir / 'social_network.db'
+# Регистрация API
+app.register_blueprint(api, url_prefix='/api')
 
-# Удаляем существующую базу данных и создаем новую
+# Создаем базу данных, если она не существует
 with app.app_context():
-    if db_path.exists():
-        os.remove(db_path)
-        print(f"База данных удалена: {db_path}")
-    db.drop_all()  # Удаляем все таблицы
-    db.create_all()  # Создаем таблицы заново
-    print("База данных успешно пересоздана!")
+    db.create_all()
+    print("База данных инициализирована!")
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -50,7 +46,14 @@ def load_user(user_id):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    # Получаем сначала закрепленные посты
+    pinned_posts = Post.query.filter_by(is_pinned=True).order_by(Post.created_at.desc()).all()
+    # Затем получаем обычные посты
+    regular_posts = Post.query.filter_by(is_pinned=False).order_by(Post.created_at.desc()).all()
+    # Объединяем посты
+    posts = pinned_posts + regular_posts
+    
+    return render_template('index.html', posts=posts)
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -103,24 +106,9 @@ def logout():
     logout_user()
     return redirect(url_for('index'))
 
-@app.route('/api/posts', methods=['GET', 'POST'])
+@app.route('/api/posts', methods=['GET'])
 @login_required
 def posts():
-    if request.method == 'POST':
-        content = request.form.get('content')
-        image_url = request.form.get('image_url')
-        
-        post = Post(
-            content=content,
-            image_url=image_url,
-            user_id=current_user.id
-        )
-        
-        db.session.add(post)
-        db.session.commit()
-        
-        return jsonify({'message': 'Post created successfully'})
-    
     posts = Post.query.order_by(Post.created_at.desc()).all()
     return jsonify([{
         'id': post.id,
@@ -329,7 +317,10 @@ def users():
 @login_required
 def user_profile(user_id):
     user = User.query.get_or_404(user_id)
-    posts = Post.query.filter_by(user_id=user_id).order_by(Post.created_at.desc()).all()
+    # Получаем сначала закрепленные посты, затем обычные
+    pinned_posts = Post.query.filter_by(author_id=user_id, is_pinned=True).order_by(Post.created_at.desc()).all()
+    regular_posts = Post.query.filter_by(author_id=user_id, is_pinned=False).order_by(Post.created_at.desc()).all()
+    posts = pinned_posts + regular_posts
     return render_template('user_profile.html', user=user, posts=posts)
 
 @app.route('/upload_avatar', methods=['POST'])

@@ -14,9 +14,10 @@ class User(UserMixin, db.Model):
     bio = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     avatar = db.Column(db.String(255), default='default_avatar.png')
+    is_admin = db.Column(db.Boolean, default=False)
     
     # Отношения
-    posts = db.relationship('Post', backref='author', lazy=True)
+    posts = db.relationship('Post', back_populates='author', lazy=True)
     comments = db.relationship('Comment', backref='author', lazy=True)
     likes = db.relationship('Like', backref='user', lazy=True)
     followers = db.relationship('Follow', foreign_keys='Follow.followed_id', backref='followed', lazy=True)
@@ -39,9 +40,9 @@ class Post(db.Model):
     content = db.Column(db.Text, nullable=False)
     image_url = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    
-    # Отношения
+    author_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    is_pinned = db.Column(db.Boolean, default=False)
+    author = db.relationship('User', back_populates='posts')
     comments = db.relationship('Comment', backref='post', lazy=True)
     likes = db.relationship('Like', backref='post', lazy=True)
 

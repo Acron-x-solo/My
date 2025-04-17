@@ -1,8 +1,9 @@
-from flask import render_template, request, redirect, url_for, flash, jsonify
+from flask import render_template, request, redirect, url_for, flash, jsonify, Blueprint
 from flask_login import login_user, logout_user, login_required, current_user
 from app import app
 from models import db, User, Post, Comment, Like, Follow, Friendship, PrivateMessage
 from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime
 
 @app.route('/')
 def index():
@@ -58,73 +59,83 @@ def logout():
     logout_user()
     return redirect(url_for('index'))
 
-@app.route('/api/posts', methods=['GET', 'POST'])
-@login_required
-def posts():
-    if request.method == 'POST':
-        content = request.form.get('content')
-        image_url = request.form.get('image_url')
-        
-        post = Post(
-            content=content,
-            image_url=image_url,
-            user_id=current_user.id
-        )
-        
-        db.session.add(post)
-        db.session.commit()
-        
-        return jsonify({'message': 'Post created successfully'})
-    
-    posts = Post.query.order_by(Post.created_at.desc()).all()
+@app.route('/api/posts', methods=['GET'])
+def get_posts():
+    posts = Post.query.order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()
     return jsonify([{
         'id': post.id,
         'content': post.content,
         'image_url': post.image_url,
-        'created_at': post.created_at,
-        'author': post.author.username
+        'author': post.author.username,
+        'created_at': post.created_at.isoformat(),
+        'is_pinned': post.is_pinned,
+        'likes_count': Like.query.filter_by(post_id=post.id).count(),
+        'comments_count': Comment.query.filter_by(post_id=post.id).count(),
+        'is_liked': Like.query.filter_by(post_id=post.id, user_id=current_user.id).first() is not None
     } for post in posts])
 
-@app.route('/api/posts/<int:post_id>/comments', methods=['GET', 'POST'])
+@app.route('/api/posts', methods=['POST'])
 @login_required
-def comments(post_id):
-    if request.method == 'POST':
-        content = request.form.get('content')
-        
-        comment = Comment(
-            content=content,
-            user_id=current_user.id,
-            post_id=post_id
-        )
-        
-        db.session.add(comment)
-        db.session.commit()
-        
-        return jsonify({'message': 'Comment added successfully'})
+def create_post():
+    data = request.get_json()
+    post = Post(
+        content=data['content'],
+        image_url=data.get('image_url'),
+        author_id=current_user.id,
+        created_at=datetime.utcnow()
+    )
+    db.session.add(post)
+    db.session.commit()
+    return jsonify({'message': 'Пост успешно создан', 'id': post.id})
+
+@app.route('/api/posts/<int:post_id>/pin', methods=['POST'])
+@login_required
+def toggle_pin(post_id):
+    if not current_user.is_admin:
+        return jsonify({'error': 'Недостаточно прав'}), 403
     
+    post = Post.query.get_or_404(post_id)
+    post.is_pinned = not post.is_pinned
+    db.session.commit()
+    return jsonify({'message': 'Пост успешно закреплен' if post.is_pinned else 'Пост успешно откреплен'})
+
+@app.route('/api/posts/<int:post_id>/like', methods=['POST'])
+@login_required
+def toggle_like(post_id):
+    like = Like.query.filter_by(post_id=post_id, user_id=current_user.id).first()
+    if like:
+        db.session.delete(like)
+        message = 'Лайк удален'
+    else:
+        like = Like(post_id=post_id, user_id=current_user.id)
+        db.session.add(like)
+        message = 'Лайк добавлен'
+    db.session.commit()
+    return jsonify({'message': message})
+
+@app.route('/api/posts/<int:post_id>/comments', methods=['GET'])
+def get_comments(post_id):
     comments = Comment.query.filter_by(post_id=post_id).order_by(Comment.created_at.desc()).all()
     return jsonify([{
         'id': comment.id,
         'content': comment.content,
-        'created_at': comment.created_at,
-        'author': comment.author.username
+        'author': comment.author.username,
+        'created_at': comment.created_at.isoformat()
     } for comment in comments])
 
-@app.route('/api/posts/<int:post_id>/like', methods=['POST'])
+@app.route('/api/posts/<int:post_id>/comments', methods=['POST'])
 @login_required
-def like_post(post_id):
-    like = Like.query.filter_by(user_id=current_user.id, post_id=post_id).first()
-    
-    if like:
-        db.session.delete(like)
-        db.session.commit()
-        return jsonify({'message': 'Post unliked'})
-    
-    like = Like(user_id=current_user.id, post_id=post_id)
-    db.session.add(like)
+def add_comment(post_id):
+    data = request.get_json()
+    comment = Comment(
+        content=data['content'],
+        post_id=post_id,
+        author_id=current_user.id,
+        created_at=datetime.utcnow()
+    )
+    db.session.add(comment)
     db.session.commit()
-    
-    return jsonify({'message': 'Post liked'})
+    return jsonify({'message': 'Комментарий успешно добавлен', 'id': comment.id})
 
 @app.route('/api/users/<int:user_id>/follow', methods=['POST'])
 @login_required
@@ -291,4 +302,84 @@ def user_profile(user_id):
         ((Friendship.user_id == user_id) & (Friendship.friend_id == current_user.id))
     ).first()
     
-    return render_template('user_profile.html', user=user, posts=posts, friendship=friendship) 
+    return render_template('user_profile.html', user=user, posts=posts, friendship=friendship)
+
+api = Blueprint('api', __name__)
+
+@api.route('/api/posts', methods=['GET'])
+def get_posts():
+    posts = Post.query.order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()
+    return jsonify([{
+        'id': post.id,
+        'content': post.content,
+        'image_url': post.image_url,
+        'author': post.author.username,
+        'created_at': post.created_at.isoformat(),
+        'is_pinned': post.is_pinned,
+        'likes_count': Like.query.filter_by(post_id=post.id).count(),
+        'comments_count': Comment.query.filter_by(post_id=post.id).count(),
+        'is_liked': Like.query.filter_by(post_id=post.id, user_id=current_user.id).first() is not None
+    } for post in posts])
+
+@api.route('/api/posts', methods=['POST'])
+@login_required
+def create_post():
+    data = request.get_json()
+    post = Post(
+        content=data['content'],
+        image_url=data.get('image_url'),
+        author_id=current_user.id,
+        created_at=datetime.utcnow()
+    )
+    db.session.add(post)
+    db.session.commit()
+    return jsonify({'message': 'Пост успешно создан', 'id': post.id})
+
+@api.route('/api/posts/<int:post_id>/pin', methods=['POST'])
+@login_required
+def toggle_pin(post_id):
+    if not current_user.is_admin:
+        return jsonify({'error': 'Недостаточно прав'}), 403
+    
+    post = Post.query.get_or_404(post_id)
+    post.is_pinned = not post.is_pinned
+    db.session.commit()
+    return jsonify({'message': 'Пост успешно закреплен' if post.is_pinned else 'Пост успешно откреплен'})
+
+@api.route('/api/posts/<int:post_id>/like', methods=['POST'])
+@login_required
+def toggle_like(post_id):
+    like = Like.query.filter_by(post_id=post_id, user_id=current_user.id).first()
+    if like:
+        db.session.delete(like)
+        message = 'Лайк удален'
+    else:
+        like = Like(post_id=post_id, user_id=current_user.id)
+        db.session.add(like)
+        message = 'Лайк добавлен'
+    db.session.commit()
+    return jsonify({'message': message})
+
+@api.route('/api/posts/<int:post_id>/comments', methods=['GET'])
+def get_comments(post_id):
+    comments = Comment.query.filter_by(post_id=post_id).order_by(Comment.created_at.desc()).all()
+    return jsonify([{
+        'id': comment.id,
+        'content': comment.content,
+        'author': comment.author.username,
+        'created_at': comment.created_at.isoformat()
+    } for comment in comments])
+
+@api.route('/api/posts/<int:post_id>/comments', methods=['POST'])
+@login_required
+def add_comment(post_id):
+    data = request.get_json()
+    comment = Comment(
+        content=data['content'],
+        post_id=post_id,
+        author_id=current_user.id,
+        created_at=datetime.utcnow()
+    )
+    db.session.add(comment)
+    db.session.commit()
+    return jsonify({'message': 'Комментарий успешно добавлен', 'id': comment.id}) 
