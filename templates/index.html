@@ -2,17 +2,33 @@
 
 {% block content %}
     {% if current_user.is_authenticated %}
-        <div class="card mb-4">
+        <div class="card mb-4 post-card">
             <div class="card-body">
-                <h5 class="card-title">Создать пост</h5>
+                <div class="d-flex align-items-center mb-3">
+                    <div class="default-avatar me-3">
+                        {{ current_user.username[0].upper() }}
+                    </div>
+                    <h5 class="card-title mb-0">Что у вас нового, {{ current_user.username }}?</h5>
+                </div>
                 <form id="postForm">
                     <div class="mb-3">
-                        <textarea class="form-control" id="content" rows="3" placeholder="Что у вас нового?"></textarea>
+                        <textarea class="form-control" id="content" rows="3" 
+                                placeholder="Поделитесь своими мыслями..."></textarea>
                     </div>
                     <div class="mb-3">
-                        <input type="text" class="form-control" id="image_url" placeholder="URL изображения (опционально)">
+                        <div class="input-group">
+                            <span class="input-group-text">
+                                <i class="fas fa-image"></i>
+                            </span>
+                            <input type="text" class="form-control" id="image_url" 
+                                   placeholder="URL изображения (опционально)">
+                        </div>
                     </div>
-                    <button type="submit" class="btn btn-primary">Опубликовать</button>
+                    <div class="d-flex justify-content-end">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-paper-plane me-2"></i>Опубликовать
+                        </button>
+                    </div>
                 </form>
             </div>
         </div>
@@ -41,16 +57,48 @@
                 .then(posts => {
                     const postsContainer = document.getElementById('posts');
                     postsContainer.innerHTML = posts.map(post => `
-                        <div class="card mb-4">
+                        <div class="card mb-4 post-card">
                             <div class="card-body">
-                                <h5 class="card-title">${post.author}</h5>
+                                <div class="d-flex align-items-center mb-3">
+                                    <div class="default-avatar me-3">
+                                        ${post.author[0].toUpperCase()}
+                                    </div>
+                                    <div>
+                                        <h5 class="card-title mb-0">${post.author}</h5>
+                                        <small class="text-muted">${new Date(post.created_at).toLocaleString()}</small>
+                                    </div>
+                                </div>
                                 <p class="card-text">${post.content}</p>
-                                ${post.image_url ? `<img src="${post.image_url}" class="img-fluid mb-3" alt="Post image">` : ''}
+                                ${post.image_url ? `
+                                    <div class="post-image-container mb-3">
+                                        <img src="${post.image_url}" class="post-image" alt="Post image">
+                                    </div>
+                                ` : ''}
                                 <div class="d-flex justify-content-between align-items-center">
-                                    <button class="btn btn-outline-primary btn-sm" onclick="toggleLike(${post.id})">
-                                        Нравится
+                                    <button class="btn btn-outline-primary btn-sm like-button ${post.is_liked ? 'active' : ''}" 
+                                            onclick="toggleLike(${post.id})">
+                                        <i class="fas fa-heart me-1"></i>
+                                        <span class="like-count">${post.likes_count || 0}</span>
                                     </button>
-                                    <small class="text-muted">${new Date(post.created_at).toLocaleString()}</small>
+                                    <button class="btn btn-outline-secondary btn-sm" onclick="toggleComments(${post.id})">
+                                        <i class="fas fa-comment me-1"></i>
+                                        <span class="comment-count">${post.comments_count || 0}</span>
+                                    </button>
+                                </div>
+                                <div class="comment-section mt-3" id="comments-${post.id}" style="display: none;">
+                                    <div class="mb-3">
+                                        <form class="comment-form" onsubmit="return addComment(event, ${post.id})">
+                                            <div class="input-group">
+                                                <input type="text" class="form-control" placeholder="Напишите комментарий..." required>
+                                                <button class="btn btn-primary" type="submit">
+                                                    <i class="fas fa-paper-plane"></i>
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                    <div class="comments-list" id="comments-list-${post.id}">
+                                        <!-- Комментарии будут загружены здесь -->
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -78,13 +126,78 @@
         }
 
         function toggleLike(postId) {
+            const likeButton = document.querySelector(`.like-button[onclick="toggleLike(${postId})"]`);
+            const likeCount = likeButton.querySelector('.like-count');
+            
             fetch(`/api/posts/${postId}/like`, {
                 method: 'POST'
             })
             .then(response => response.json())
             .then(data => {
-                loadPosts();
+                // Обновляем состояние кнопки
+                likeButton.classList.toggle('active');
+                
+                // Обновляем счетчик лайков
+                const currentCount = parseInt(likeCount.textContent);
+                if (likeButton.classList.contains('active')) {
+                    likeCount.textContent = currentCount + 1;
+                } else {
+                    likeCount.textContent = currentCount - 1;
+                }
             });
+        }
+
+        function toggleComments(postId) {
+            const commentsSection = document.getElementById(`comments-${postId}`);
+            if (commentsSection.style.display === 'none') {
+                commentsSection.style.display = 'block';
+                loadComments(postId);
+            } else {
+                commentsSection.style.display = 'none';
+            }
+        }
+
+        function loadComments(postId) {
+            fetch(`/api/posts/${postId}/comments`)
+                .then(response => response.json())
+                .then(comments => {
+                    const commentsList = document.getElementById(`comments-list-${postId}`);
+                    commentsList.innerHTML = comments.map(comment => `
+                        <div class="comment mb-3">
+                            <div class="d-flex align-items-center mb-1">
+                                <div class="default-avatar me-2" style="width: 30px; height: 30px; font-size: 0.8rem;">
+                                    ${comment.author[0].toUpperCase()}
+                                </div>
+                                <strong>${comment.author}</strong>
+                                <small class="text-muted ms-2">${new Date(comment.created_at).toLocaleString()}</small>
+                            </div>
+                            <p class="mb-0 ms-4">${comment.content}</p>
+                        </div>
+                    `).join('');
+                });
+        }
+
+        function addComment(event, postId) {
+            event.preventDefault();
+            const form = event.target;
+            const input = form.querySelector('input');
+            const content = input.value;
+
+            fetch(`/api/posts/${postId}/comments`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `content=${encodeURIComponent(content)}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                input.value = '';
+                loadComments(postId);
+                loadPosts(); // Обновляем счетчик комментариев
+            });
+
+            return false;
         }
     </script>
 {% endblock %} 

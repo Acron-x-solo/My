@@ -1,6 +1,7 @@
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
 
 db = SQLAlchemy()
 
@@ -12,6 +13,7 @@ class User(UserMixin, db.Model):
     profile_picture = db.Column(db.String(255))
     bio = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    avatar = db.Column(db.String(255), default='default_avatar.png')
     
     # Отношения
     posts = db.relationship('Post', backref='author', lazy=True)
@@ -25,6 +27,12 @@ class User(UserMixin, db.Model):
     received_messages = db.relationship('PrivateMessage', foreign_keys='PrivateMessage.receiver_id', backref='receiver', lazy=True)
     friends = db.relationship('Friendship', foreign_keys='Friendship.user_id', backref='user', lazy=True)
     friend_of = db.relationship('Friendship', foreign_keys='Friendship.friend_id', backref='friend', lazy=True)
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+        
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
 
 class Post(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -49,6 +57,8 @@ class Like(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    __table_args__ = (db.UniqueConstraint('user_id', 'post_id', name='_user_post_uc'),)
 
 class Follow(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -62,7 +72,8 @@ class Friendship(db.Model):
     friend_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     status = db.Column(db.String(20), default='pending')  # pending, accepted, rejected
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (db.UniqueConstraint('user_id', 'friend_id', name='_user_friend_uc'),)
 
 class PrivateMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
