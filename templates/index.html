@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block content %}
+    {% if current_user.is_authenticated %}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Создать пост</h5>
+                <form id="postForm">
+                    <div class="mb-3">
+                        <textarea class="form-control" id="content" rows="3" placeholder="Что у вас нового?"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <input type="text" class="form-control" id="image_url" placeholder="URL изображения (опционально)">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Опубликовать</button>
+                </form>
+            </div>
+        </div>
+    {% endif %}
+
+    <div id="posts">
+        <!-- Посты будут загружены через JavaScript -->
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            loadPosts();
+            
+            const postForm = document.getElementById('postForm');
+            if (postForm) {
+                postForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    createPost();
+                });
+            }
+        });
+
+        function loadPosts() {
+            fetch('/api/posts')
+                .then(response => response.json())
+                .then(posts => {
+                    const postsContainer = document.getElementById('posts');
+                    postsContainer.innerHTML = posts.map(post => `
+                        <div class="card mb-4">
+                            <div class="card-body">
+                                <h5 class="card-title">${post.author}</h5>
+                                <p class="card-text">${post.content}</p>
+                                ${post.image_url ? `<img src="${post.image_url}" class="img-fluid mb-3" alt="Post image">` : ''}
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <button class="btn btn-outline-primary btn-sm" onclick="toggleLike(${post.id})">
+                                        Нравится
+                                    </button>
+                                    <small class="text-muted">${new Date(post.created_at).toLocaleString()}</small>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                });
+        }
+
+        function createPost() {
+            const content = document.getElementById('content').value;
+            const image_url = document.getElementById('image_url').value;
+
+            fetch('/api/posts', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `content=${encodeURIComponent(content)}&image_url=${encodeURIComponent(image_url)}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('content').value = '';
+                document.getElementById('image_url').value = '';
+                loadPosts();
+            });
+        }
+
+        function toggleLike(postId) {
+            fetch(`/api/posts/${postId}/like`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                loadPosts();
+            });
+        }
+    </script>
+{% endblock %} 

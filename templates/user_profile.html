@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <div class="row">
+        <div class="col-md-8 mx-auto">
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h4 class="mb-0">{{ user.username }}</h4>
+                        {% if user.id != current_user.id %}
+                            {% if not friendship %}
+                                <button class="btn btn-primary" onclick="addFriend({{ user.id }})">Добавить в друзья</button>
+                            {% elif friendship.status == 'pending' %}
+                                {% if friendship.user_id == current_user.id %}
+                                    <span class="badge bg-warning">Заявка отправлена</span>
+                                {% else %}
+                                    <div>
+                                        <button class="btn btn-success btn-sm" onclick="acceptFriend({{ friendship.id }})">Принять</button>
+                                        <button class="btn btn-danger btn-sm" onclick="rejectFriend({{ friendship.id }})">Отклонить</button>
+                                    </div>
+                                {% endif %}
+                            {% elif friendship.status == 'accepted' %}
+                                <span class="badge bg-success">Друзья</span>
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                    
+                    {% if user.bio %}
+                        <p class="text-muted">{{ user.bio }}</p>
+                    {% endif %}
+                    
+                    <div class="d-flex gap-3">
+                        <small class="text-muted">Зарегистрирован: {{ user.created_at.strftime('%d.%m.%Y') }}</small>
+                        {% if friendship and friendship.status == 'accepted' %}
+                            <a href="{{ url_for('chat', user_id=user.id) }}" class="btn btn-primary btn-sm">Написать сообщение</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Посты</h5>
+                </div>
+                <div class="card-body">
+                    {% if posts %}
+                        {% for post in posts %}
+                            <div class="card mb-3">
+                                <div class="card-body">
+                                    <p class="card-text">{{ post.content }}</p>
+                                    {% if post.image_url %}
+                                        <img src="{{ post.image_url }}" class="img-fluid mb-3" alt="Post image">
+                                    {% endif %}
+                                    <small class="text-muted">{{ post.created_at.strftime('%d.%m.%Y %H:%M') }}</small>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="text-muted">У пользователя пока нет постов</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function addFriend(userId) {
+            fetch(`/api/friends/${userId}/add`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                location.reload();
+            });
+        }
+
+        function acceptFriend(requestId) {
+            fetch(`/api/friends/${requestId}/accept`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                location.reload();
+            });
+        }
+
+        function rejectFriend(requestId) {
+            fetch(`/api/friends/${requestId}/reject`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                location.reload();
+            });
+        }
+    </script>
+{% endblock %} 
